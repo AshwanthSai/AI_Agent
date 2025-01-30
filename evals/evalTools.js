@@ -2,11 +2,22 @@ import 'dotenv/config'
 import chalk from 'chalk'
 import { JSONFilePreset } from 'lowdb/node'
 
+/* 
+  We store eval results in results.json
+  In order to plot a graph, we need present result + old results
+*/
 const getDb = async () => {
+  const defaultData = {
+    experiments: [],
+  }
   const db = await JSONFilePreset('results.json', defaultData)
   return db
 }
 
+/* 
+  Calculate average score of a run
+  To show in CLI
+*/
 const calculateAvgScore = (runs) => {
   const totalScores = runs.reduce((sum, run) => {
     const runAvg =
@@ -17,14 +28,20 @@ const calculateAvgScore = (runs) => {
   return totalScores / runs.length
 }
 
+/* 
+  Find all runs of a particular experiment
+  "Reddit Experiment"
+*/
 export const loadExperiment = async (experimentName) => {
   const db = await getDb()
   return db.data.experiments.find((e) => e.name === experimentName)
 }
 
+/* 
+  Save new run of test into experiment list
+*/
 export const saveSet = async (experimentName, runs) => {
   const db = await getDb()
-
   const runsWithTimestamp = runs.map((run) => ({
     ...run,
     createdAt: new Date().toISOString(),
@@ -51,9 +68,13 @@ export const saveSet = async (experimentName, runs) => {
   await db.write()
 }
 
+/*
+  Run task for each item of dataset
+*/
 export const runEval = async (experiment, { task, data, scorers }) => {
   const results = await Promise.all(
     data.map(async ({ input, expected, reference }) => {
+      // Array of result of each task run.
       const results = await task(input)
       let context
       let output
@@ -65,6 +86,7 @@ export const runEval = async (experiment, { task, data, scorers }) => {
         output = results
       }
 
+      // Use result array to calculate scores
       const scores = await Promise.all(
         scorers.map(async (scorer) => {
           const score = await scorer({
@@ -81,6 +103,7 @@ export const runEval = async (experiment, { task, data, scorers }) => {
         })
       )
 
+      // Return result with array of scores.
       const result = {
         input,
         output,
@@ -92,12 +115,15 @@ export const runEval = async (experiment, { task, data, scorers }) => {
     })
   )
 
+  /* Aux to find Difference in Score */
   const previousExperiment = await loadExperiment(experiment)
   const previousScore =
     previousExperiment?.sets[previousExperiment.sets.length - 1]?.score || 0
   const currentScore = calculateAvgScore(results)
+
   const scoreDiff = currentScore - previousScore
 
+  // Setting conditions for CLI response.
   const color = previousExperiment
     ? scoreDiff > 0
       ? chalk.green
@@ -114,7 +140,7 @@ export const runEval = async (experiment, { task, data, scorers }) => {
   )
   console.log()
 
+  // Save results to results.json
   await saveSet(experiment, results)
-
   return results
 }

@@ -1,11 +1,16 @@
 import 'dotenv/config'
 import { join } from 'path'
-import { fileURLToPath } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 import { dirname } from 'path'
 import { readdir } from 'fs/promises'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+
+/* 
+- If $1 then run all .eval scripts
+- Else run the script with the appropriate eval names
+*/
 
 const main = async () => {
   const evalName = process.argv[2]
@@ -13,14 +18,19 @@ const main = async () => {
 
   try {
     if (evalName) {
-      const evalPath = join(experimentsDir, `${evalName}.eval.js`)
+      //* Create a path for the script
+      const evalPath = pathToFileURL(
+        join(experimentsDir, `${evalName}.eval.js`)
+      ).href
+      //* Import and run the script
       await import(evalPath)
     } else {
       const files = await readdir(experimentsDir)
       const evalFiles = files.filter((file) => file.endsWith('.eval.js'))
 
       for (const evalFile of evalFiles) {
-        const evalPath = join(experimentsDir, evalFile)
+        const evalPath = pathToFileURL(join(experimentsDir, evalFile)).href
+        console.log(evalPath)
         await import(evalPath)
       }
     }

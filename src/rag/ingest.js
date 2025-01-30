@@ -1,9 +1,8 @@
 import 'dotenv/config'
 import { Index } from '@upstash/vector'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
 import fs from 'fs'
-import csv from 'csv-parser'
+import path from 'path'
+import { parse } from 'csv-parse/sync'
 import ora from 'ora'
 
 // Initialize Upstash Vector client
@@ -13,60 +12,43 @@ const index = new Index({
 })
 
 export async function indexMovieData() {
-  // Get the current file's path
-  const __filename = fileURLToPath(import.meta.url)
-  // Get the current directory's path (Folder name)
-  const __dirname = dirname(__filename)
-
-  const dataSetPath = join(__dirname, 'imdb_movie_dataset.csv')
-  const outputPath = join(__dirname, 'imdb_movie_dataset.json')
-
   // Read the CSV file and store the results in an array
   const spinner = ora('Reading movie data...').start()
-  const results = []
-  fs.createReadStream(dataSetPath)
-    .pipe(csv())
-    .on('data', (row) => results.push(row))
-    .on('end', () => console.log(`Data read into results`))
+  // Read and parse CSV file
+  // process.cwd fetches the present working directory
+  const csvPath = path.join(process.cwd(), 'src/rag/imdb_movie_dataset.csv')
+  const csvData = fs.readFileSync(csvPath, 'utf-8')
+  const records = parse(csvData, {
+    columns: true,
+    skip_empty_lines: true,
+  })
 
-  console.log(results)
   spinner.text = 'Starting movie indexing...'
-
-  for (const movie of results) {
-    console.log(`Here 1`)
+  for (const movie of records) {
     spinner.text = `Indexing movie: ${movie.Title}`
     const text = `${movie.Title}. ${movie.Genre}. ${movie.Description}`
-    console.log(`Here 2`)
     try {
       await index.upsert({
         id: movie.Title, // Using Rank as unique ID
         data: text, // Text will be automatically embedded
         metadata: {
           title: movie.Title,
-          year: movie.Year,
+          year: Number(movie.Year),
           genre: movie.Genre,
           director: movie.Director,
           actors: movie.Actors,
-          rating: movie.Rating,
-          votes: movie.Votes,
-          revenue: movie.Revenue,
-          metascore: movie.Metascore,
+          rating: Number(movie.Rating),
+          votes: Number(movie.Votes),
+          revenue: Number(movie.Revenue),
+          metascore: Number(movie.Metascore),
         },
       })
     } catch (error) {
       spinner.fail(`Error indexing movie ${movie.Title}`)
       console.error(error)
     }
-    console.log(`Here 3`)
   }
   spinner.succeed('Finished indexing movie data')
 }
 
 indexMovieData()
-/* await index.query({
-  data: 'Enter data as string',
-  topK: 1,
-  includeVectors: true,
-  includeMetadata: true,
-})
- */

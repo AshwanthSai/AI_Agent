@@ -1,6 +1,7 @@
 import { runAgent } from './src/agent.js'
 import { dadJokeDefinition } from './src/tools/dadJokes.js'
 import { generateImagesDefinition } from './src/tools/generateImages.js'
+import { movieSearchDefinition } from './src/tools/movieSearch.js'
 import { redditToolDefinition } from './src/tools/reddit.js'
 
 const userMessage = process.argv[2]
@@ -15,7 +16,7 @@ if (!userMessage) {
   process.exit(1)
 }
 
-const tools = [
+export const tools = [
   {
     type: 'function',
     function: dadJokeDefinition,
@@ -27,6 +28,10 @@ const tools = [
   {
     type: 'function',
     function: redditToolDefinition,
+  },
+  {
+    type: 'function',
+    function: movieSearchDefinition,
   },
 ]
 

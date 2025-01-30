@@ -18,6 +18,7 @@ export const runAgent = async ({ userMessage, tools }) => {
     const response = await runLLM(messages, tools)
     //Save response to memory
     await addMessagesToDb([response])
+
     if (response.content) {
       loader.stop()
       logMessage(response)
