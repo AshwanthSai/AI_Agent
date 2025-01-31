@@ -1,18 +1,33 @@
 import { openai } from './ai.js'
+import { getMessagesFromDb, getSummaryFromDb } from './memory.js'
 import { systemPrompt } from './systemPrompt.js'
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
 
 /* 
-  - Boiler plate from GPT Docs
+  - Remember the summarization flow
+  - For each conversion you add to memory, it checks if limit has reached
+    On reaching limit, it summarizes the conversation and adds to DB
+    Eliminates the first few conversations
+
+    Each run of LLM, we check for a summary, if not present we do not add it. 
 */
 
 export const runLLM = async (messages, tools) => {
+  const summary = await getSummaryFromDb()
   const response = await openai.chat.completions.create({
     // Prefer using 4o-mini
     model: 'gpt-4o-mini',
     temperature: 0.1,
-    messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    messages: [
+      {
+        role: 'system',
+        content: `${
+          systemPrompt || defaultSystemPrompt
+        }. Conversation summary so far: ${summary}`,
+      },
+      ...messages,
+    ],
     tools,
     // Choose the appropriate tool for the job from the entire pool.
     tool_choice: 'auto', // You could narrow the selection for pool call here.
@@ -50,6 +65,22 @@ export const runApprovalCheck = async (userMessage) => {
       { role: 'user', content: userMessage },
     ],
   })
-
+  // For structured output, the field from which we extract is
   return result.choices[0].message.parsed?.approved
+}
+
+export const summarizeMessage = async (lastSixMessages) => {
+  const response = await openai.beta.chat.completions.parse({
+    model: 'gpt-4o-mini',
+    temperature: 0.3,
+    messages: [
+      {
+        role: 'system',
+        content: `Summarize the key points of the conversation in a concise way that would be helpful as context for future interactions. Make it like a play by play of the conversation.`,
+      },
+      ...lastSixMessages,
+    ],
+  })
+
+  return response.choices[0].message || ''
 }
