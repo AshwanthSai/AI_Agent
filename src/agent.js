@@ -1,14 +1,68 @@
-import { runLLM } from './llm.js'
+import { runApprovalCheck, runLLM } from './llm.js'
 import {
   addMessagesToDb,
   getMessagesFromDb,
   saveToolResponse,
 } from './memory.js'
-import { showLoader, logMessage } from './ui.js'
 import { runTool } from './toolRunner.js'
+import { generateImagesDefinition } from './tools/generateImages.js'
+import { showLoader, logMessage } from './ui.js'
+
+/* 
+  If this function is being run, then the history is at the state of 
+  an Image generation tool call, all other tool calls do not need an approval and will 
+  follow the normal flow
+  Since it is in a tool call state, we have to add a tool call result before normal execution
+  Remember the Tool Call Flow
+
+  AI says use this tool and provides structured arguments
+  We run the tool locally, save the results to DB
+  Pass to AI
+  AI structures our response and sends it back to us
+*/
+export const handleImageApprovalFlow = async ({ userMessage }) => {
+  // The UI Spinner on logging the name of the Tool during a Tool Call message by AI
+  // Automatically console.logs an approval prompt.
+  const history = await getMessagesFromDb()
+  const latestMessage = history.at(-1)
+  const toolCall = latestMessage?.tool_calls?.[0] // Grab the tool call
+  // We only need approval for generateImages tool
+  if (!toolCall || toolCall.function.name != generateImagesDefinition.name) {
+    return
+  }
+  const loader = showLoader('Processing Approval')
+  const approval = await runApprovalCheck(userMessage)
+  if (approval) {
+    loader.update(`Executing Tool, ${toolCall.function.name}`)
+    const toolCallResult = await runTool(userMessage, toolCall)
+    loader.update(`Completed Tool Call, ${toolCall.function.name}`)
+    await saveToolResponse(toolCall.id, toolCallResult)
+  } else {
+    await saveToolResponse(
+      toolCall.id,
+      'User did not approve image generation at this time'
+    )
+    // Not Approval State, Add user message to db within runAgent
+    return false
+  }
+  loader.stop()
+  // Approval State, We have already added tool call result to DB
+  // Does not need any user message to be added to db.
+  return true
+}
 
 export const runAgent = async ({ userMessage, tools }) => {
-  await addMessagesToDb([{ role: 'user', content: userMessage }])
+  // If in a Generate Image tool call state, we will send in a Yes or No as prompt to restart Chat
+  const isApprovalState = await handleImageApprovalFlow({ userMessage })
+
+  /* 
+    If our present state is not a Generate Image Tool Call State, 
+    Continue Normal Flow, Add user message to Context and runLLM 
+  */
+  if (!isApprovalState) {
+    await addMessagesToDb([{ role: 'user', content: userMessage }])
+  }
+
   const loader = showLoader('Thinking...\n')
 
   while (true) {
@@ -24,9 +78,23 @@ export const runAgent = async ({ userMessage, tools }) => {
       logMessage(response)
       return getMessagesFromDb()
     }
+
     if (response.tool_calls) {
       loader.update(`executing: ${response.tool_calls[0].function.name}`)
+      // If response.tool call is generateImages, UI.js will
+      // automatically prompt for an approval
       logMessage(response)
+
+      // If the tool call is generateImages, Go to top of While Loop
+      // to handle the approval flow
+      if (
+        response.tool_calls[0].function.name === generateImagesDefinition.name
+      ) {
+        loader.update(`Sending for Approval`)
+        loader.stop()
+        return getMessagesFromDb()
+      }
+
       const toolCallResult = await runTool(userMessage, response.tool_calls[0])
       await saveToolResponse(response, toolCallResult)
       loader.update(`done: ${response.tool_calls[0].function.name}`)

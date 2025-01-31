@@ -43,7 +43,7 @@ export const saveToolResponse = async (response, result) => {
   return addMessagesToDb([
     {
       role: 'tool',
-      tool_call_id: response.tool_calls[0].id,
+      tool_call_id: response?.tool_calls?.[0]?.id || response,
       content: result.toString(),
     },
   ])
